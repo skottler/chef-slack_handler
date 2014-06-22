@@ -43,6 +43,7 @@ class Chef::Handler::Slack < Chef::Handler
     begin
       Timeout::timeout(@timeout) do
         Chef::Log.debug("Sending report to Slack ##{config[:channel]}@#{team}.slack.com")
+        @timestamp = Time.now.getutc
         create_gist
 
         if run_status_human_readable == "failed"
