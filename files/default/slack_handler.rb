@@ -35,6 +35,7 @@ class Chef::Handler::Slack < Chef::Handler
     @team    = @config.delete(:team)
     @api_key = @config.delete(:api_key)
     @timeout = @config.delete(:timeout) || 15
+    @gist_url = nil
     @config.delete(:icon_emoji) if @config[:icon_url] && @config[:icon_emoji]
   end
 
@@ -42,7 +43,11 @@ class Chef::Handler::Slack < Chef::Handler
     begin
       Timeout::timeout(@timeout) do
         Chef::Log.debug("Sending report to Slack ##{config[:channel]}@#{team}.slack.com")
-        slack_message("Chef client run #{run_status_human_readable} on #{run_status.node.name}")
+        create_gist
+
+        if run_status_human_readable == "failed"
+          slack_message("Chef failed on #{node.name} (#{formatted_run_list}): #{@gist_url}")
+        end
       end
     rescue Exception => e
       Chef::Log.debug("Failed to send message to Slack: #{e.message}")
@@ -50,6 +55,51 @@ class Chef::Handler::Slack < Chef::Handler
   end
 
   private
+
+  def formatted_run_list
+    node.run_list.map { |r| r.type == :role ? r.name : r.to_s }.join(", ")
+  end
+
+  def formatted_gist
+    ip_address = node.has_key?(:cloud) ? node.cloud.public_ipv4 : node.ipaddress
+    node_info = [
+      "Node: #{node.name} (#{ip_address})",
+      "Run list: #{node.run_list}",
+      "All roles: #{node.roles.join(', ')}"
+    ].join("\n")
+    [
+      node_info,
+      run_status.formatted_exception,
+      Array(backtrace).join("\n")
+    ].join("\n\n")
+  end
+
+  def create_gist
+    begin
+      timeout(10) do
+        uri = URI.parse("https://api.github.com/gists")
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = true
+        request = Net::HTTP::Post.new(uri.request_uri)
+        request.body = {
+          "description" => "Chef run failed on #{node.name} @ #{@timestamp}",
+          "public" => false,
+          "files" => {
+            "chef_exception.txt" => {
+              "content" => formatted_gist
+            }
+          }
+        }.to_json
+        response = http.request(request)
+        @gist_url = JSON.parse(response.body)["html_url"]
+      end
+      Chef::Log.info("Created a GitHub Gist @ #{@gist_url}")
+    rescue Timeout::Error
+      Chef::Log.error("Timed out while attempting to create a GitHub Gist")
+    rescue => error
+      Chef::Log.error("Unexpected error while attempting to create a GitHub Gist: #{error}")
+    end
+  end
 
   def slack_message(content)
     slack = Slackr::Webhook.new(team, api_key, config)
