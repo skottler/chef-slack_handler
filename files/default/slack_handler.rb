@@ -93,11 +93,11 @@ class Chef::Handler::Slack < Chef::Handler
         response = http.request(request)
         @gist_url = JSON.parse(response.body)["html_url"]
       end
-      Chef::Log.info("Created a GitHub Gist @ #{@gist_url}")
+      Chef::Log.info("Created a Gist @ #{@gist_url}")
     rescue Timeout::Error
-      Chef::Log.error("Timed out while attempting to create a GitHub Gist")
+      Chef::Log.error("Timed out while attempting to create a Gist")
     rescue => error
-      Chef::Log.error("Unexpected error while attempting to create a GitHub Gist: #{error}")
+      Chef::Log.error("Unexpected error while attempting to create a Gist: #{error.backtrace.inspect}")
     end
   end
 
